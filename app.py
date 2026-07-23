@@ -1,4 +1,4 @@
-"""FastAPI application for Deep Anomaly Detector - Oil & Gas sensor monitoring."""
+"""FastAPI application for Deep Anomaly Detector using TensorFlow/Keras + PyTorch."""
 
 import os
 import sys
@@ -14,16 +14,16 @@ from pydantic import BaseModel
 
 sys.path.insert(0, os.path.dirname(__file__))
 
+import tensorflow as tf
+import torch
+
 from deep_anomaly.data_generator import SensorDataGenerator
 from deep_anomaly.utils.sequence_processor import SequenceProcessor
-from deep_anomaly.models.autoencoder import SimpleAutoencoder
-from deep_anomaly.models.lstm_predictor import SimpleLSTMPredictor
-from deep_anomaly.models.isolation_forest import IsolationForestDetector
 
 app = FastAPI(
     title="Deep Anomaly Detector",
-    description="Deep Learning Anomaly Detection for Oil & Gas sensor monitoring",
-    version="1.0.0",
+    description="Deep Learning Anomaly Detection for Oil & Gas sensor monitoring (TF/Keras + PyTorch)",
+    version="2.0.0",
 )
 
 app.add_middleware(
@@ -43,17 +43,88 @@ gen = SensorDataGenerator(seed=42)
 _models = {}
 
 
+class AutoEncoderWrapper:
+    def __init__(self, keras_model, threshold):
+        self.keras_model = keras_model
+        self.threshold = threshold
+
+    def detect(self, flat_data):
+        tensor = tf.convert_to_tensor(flat_data, dtype=tf.float32)
+        reconstructed = self.keras_model(tensor).numpy()
+        errors = np.mean(np.abs(flat_data - reconstructed), axis=1)
+        preds = np.where(errors > self.threshold, -1, 1)
+        return preds, errors
+
+
+class LSTMDetectorWrapper:
+    def __init__(self, torch_model, threshold):
+        self.torch_model = torch_model
+        self.threshold = threshold
+        self.torch_model.eval()
+
+    def predict_next(self, seq):
+        with torch.no_grad():
+            x = torch.FloatTensor(seq).unsqueeze(0)
+            pred = self.torch_model(x)
+        return pred.squeeze(0).numpy()
+
+    def detect(self, seqs, targets):
+        errors = []
+        with torch.no_grad():
+            for seq, tgt in zip(seqs, targets):
+                x = torch.FloatTensor(seq).unsqueeze(0)
+                pred = self.torch_model(x).squeeze(0).numpy()
+                err = float(np.mean(np.abs(pred - tgt)))
+                errors.append(err)
+        errors = np.array(errors)
+        preds = np.where(errors > self.threshold, -1, 1)
+        return preds, errors
+
+
+def _build_ae_model(input_dim):
+    from tensorflow.keras import layers
+    model = tf.keras.Sequential([
+        layers.Dense(128, activation='relu', input_shape=(input_dim,)),
+        layers.Dense(64, activation='relu'),
+        layers.Dense(16, activation='relu'),
+        layers.Dense(64, activation='relu'),
+        layers.Dense(128, activation='relu'),
+        layers.Dense(input_dim, activation='sigmoid'),
+    ])
+    model.compile(optimizer='adam', loss='mse')
+    return model
+
+
+def _build_lstm_model(input_size):
+    from deep_anomaly.train import LSTMDetector
+    model = LSTMDetector(input_size=input_size, hidden_size=64, num_layers=2)
+    return model
+
+
 def _load_models():
-    if not _models:
-        ae_path = os.path.join(MODELS_DIR, "autoencoder.pkl")
-        lstm_path = os.path.join(MODELS_DIR, "lstm_predictor.pkl")
-        if_path = os.path.join(MODELS_DIR, "isolation_forest.pkl")
-        if os.path.exists(ae_path):
-            _models["autoencoder"] = SimpleAutoencoder.load(ae_path)
-        if os.path.exists(lstm_path):
-            _models["lstm"] = SimpleLSTMPredictor.load(lstm_path)
-        if os.path.exists(if_path):
-            _models["isolation_forest"] = IsolationForestDetector.load(if_path)
+    if _models:
+        return
+
+    ae_path = os.path.join(MODELS_DIR, "autoencoder.pkl")
+    lstm_path = os.path.join(MODELS_DIR, "lstm_predictor.pkl")
+
+    if os.path.exists(ae_path + "_weights.weights.h5"):
+        input_dim = 4 * 30
+        keras_model = _build_ae_model(input_dim)
+        keras_model.load_weights(ae_path + "_weights.weights.h5")
+        with open(ae_path + "_meta.json") as f:
+            meta = json.load(f)
+        _models["autoencoder"] = AutoEncoderWrapper(keras_model, meta["threshold"])
+        print("  Loaded TF/Keras Autoencoder")
+
+    if os.path.exists(lstm_path + "_state.pth"):
+        input_size = 4
+        torch_model = _build_lstm_model(input_size)
+        torch_model.load_state_dict(torch.load(lstm_path + "_state.pth", weights_only=True))
+        with open(lstm_path + "_meta.json") as f:
+            meta = json.load(f)
+        _models["lstm"] = LSTMDetectorWrapper(torch_model, meta["threshold"])
+        print("  Loaded PyTorch LSTM")
 
 
 def _get_metadata():
@@ -86,7 +157,8 @@ async def health():
     return {
         "status": "healthy",
         "models_loaded": list(_models.keys()),
-        "version": "1.0.0",
+        "version": "2.0.0",
+        "frameworks": ["tensorflow", "pytorch", "tsfresh"],
     }
 
 
@@ -123,12 +195,7 @@ async def detect(request: DetectRequest):
                 "anomalies_detected": int(np.sum(preds == -1)),
                 "scores": [round(float(x), 6) for x in errors],
                 "threshold": _models["autoencoder"].threshold,
-            }
-        if "isolation_forest" in _models:
-            preds, errors = _models["isolation_forest"].detect(flat)
-            detections["isolation_forest"] = {
-                "anomalies_detected": int(np.sum(preds == -1)),
-                "scores": [round(float(x), 6) for x in errors],
+                "framework": "tensorflow",
             }
 
         results["detections"] = detections
@@ -150,7 +217,7 @@ async def forecast(request: ForecastRequest):
         if "lstm" in _models:
             model = _models["lstm"]
             for i in range(30, min(request.n_points, 30 + 50)):
-                seq = arr[i - 30 : i]
+                seq = arr[i - 30: i]
                 pred = model.predict_next(seq)
                 forecasts.append({
                     "step": i,
@@ -178,10 +245,10 @@ async def compare(request: CompareRequest):
         )
         windows = proc.prepare_train_data(anomalous, window_size=30)
         flat = windows.reshape(windows.shape[0], -1)
-        true_labels = np.where(true_mask[: len(flat)], -1, 1)
+        true_labels = np.where(true_mask[:len(flat)], -1, 1)
 
         comparison = {}
-        for name in ["autoencoder", "isolation_forest", "lstm"]:
+        for name in ["autoencoder", "lstm"]:
             if name not in _models:
                 continue
             model = _models[name]
@@ -189,9 +256,9 @@ async def compare(request: CompareRequest):
                 arr = proc.normalize(anomalous, fit=False)
                 arr = np.column_stack([arr[k] for k in sorted(arr.keys())])
                 seq_len = 30
-                seqs = np.array([arr[i : i + seq_len] for i in range(0, len(arr) - seq_len)])
+                seqs = np.array([arr[i: i + seq_len] for i in range(0, len(arr) - seq_len)])
                 tgts = np.array([arr[i + seq_len] for i in range(0, len(arr) - seq_len)])
-                preds, errors = model.detect(seqs[: len(tgts)], tgts)
+                preds, errors = model.detect(seqs[:len(tgts)], tgts)
             else:
                 preds, errors = model.detect(flat)
 
@@ -223,7 +290,7 @@ async def compare(request: CompareRequest):
 async def api_docs():
     return {
         "openapi": "3.0.0",
-        "info": {"title": "Deep Anomaly Detector", "version": "1.0.0"},
+        "info": {"title": "Deep Anomaly Detector", "version": "2.0.0"},
         "paths": {
             "/api/health": {"get": {"summary": "Health check"}},
             "/api/models": {"get": {"summary": "Model info"}},
@@ -238,4 +305,3 @@ if __name__ == "__main__":
     import uvicorn
     _load_models()
     uvicorn.run(app, host="0.0.0.0", port=5018)
-
