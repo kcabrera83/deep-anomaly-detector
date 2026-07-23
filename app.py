@@ -1,21 +1,37 @@
-"""Flask API for Deep Anomaly Detector - Oil & Gas sensor monitoring."""
+"""FastAPI application for Deep Anomaly Detector - Oil & Gas sensor monitoring."""
 
 import os
 import sys
 import json
 import traceback
 import numpy as np
+from typing import Any, Dict, List, Optional
+
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-from flask import Flask, request, jsonify, render_template
 from deep_anomaly.data_generator import SensorDataGenerator
 from deep_anomaly.utils.sequence_processor import SequenceProcessor
 from deep_anomaly.models.autoencoder import SimpleAutoencoder
 from deep_anomaly.models.lstm_predictor import SimpleLSTMPredictor
 from deep_anomaly.models.isolation_forest import IsolationForestDetector
 
-app = Flask(__name__)
+app = FastAPI(
+    title="Deep Anomaly Detector",
+    description="Deep Learning Anomaly Detection for Oil & Gas sensor monitoring",
+    version="1.0.0",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 MODELS_DIR = os.path.join(os.path.dirname(__file__), "outputs", "models")
 proc = SequenceProcessor(window_size=30, stride=1)
@@ -45,24 +61,34 @@ def _get_metadata():
     return {}
 
 
-@app.route("/")
-def index():
-    return render_template("index.html")
+class DetectRequest(BaseModel):
+    n_points: int = 500
 
 
-@app.route("/api/health", methods=["GET"])
-def health():
+class ForecastRequest(BaseModel):
+    n_points: int = 300
+
+
+class CompareRequest(BaseModel):
+    n_points: int = 500
+
+
+@app.on_event("startup")
+async def startup_event():
     _load_models()
-    return jsonify({
+
+
+@app.get("/api/health")
+async def health():
+    return {
         "status": "healthy",
         "models_loaded": list(_models.keys()),
         "version": "1.0.0",
-    })
+    }
 
 
-@app.route("/api/models", methods=["GET"])
-def models_info():
-    _load_models()
+@app.get("/api/models")
+async def models_info():
     info = {}
     for name, model in _models.items():
         info[name] = {
@@ -70,23 +96,20 @@ def models_info():
             "threshold": model.threshold,
         }
     meta = _get_metadata()
-    return jsonify({"models": info, "metadata": meta})
+    return {"models": info, "metadata": meta}
 
 
-@app.route("/api/detect", methods=["POST"])
-def detect():
+@app.post("/api/detect")
+async def detect(request: DetectRequest):
     try:
-        _load_models()
-        data = request.get_json(silent=True) or {}
-        n_points = data.get("n_points", 500)
         normal, anomalous, true_mask, true_types = gen.generate_dataset(
-            n_points=n_points, anomaly_ratio=0.05
+            n_points=request.n_points, anomaly_ratio=0.05
         )
 
         windows = proc.prepare_train_data(anomalous, window_size=30)
         flat = windows.reshape(windows.shape[0], -1)
 
-        results = {"timestamp": list(range(n_points)), "sensors": {}}
+        results: Dict[str, Any] = {"timestamp": list(range(request.n_points)), "sensors": {}}
         for k, v in anomalous.items():
             results["sensors"][k] = [round(float(x), 4) for x in v]
 
@@ -108,26 +131,22 @@ def detect():
         results["detections"] = detections
         results["true_anomaly_mask"] = [bool(x) for x in true_mask]
         results["true_anomaly_types"] = [str(x) for x in true_types]
-        return jsonify(results)
+        return results
     except Exception as e:
-        return jsonify({"error": str(e), "trace": traceback.format_exc()}), 500
+        raise HTTPException(status_code=500, detail={"error": str(e), "trace": traceback.format_exc()})
 
 
-@app.route("/api/forecast", methods=["POST"])
-def forecast():
+@app.post("/api/forecast")
+async def forecast(request: ForecastRequest):
     try:
-        _load_models()
-        data = request.get_json(silent=True) or {}
-        n_points = data.get("n_points", 300)
-
-        sensor_data = gen.generate_normal(n_points)
+        sensor_data = gen.generate_normal(request.n_points)
         normed = proc.normalize(sensor_data, fit=True)
         arr = np.column_stack([normed[k] for k in sorted(normed.keys())])
 
         forecasts = []
         if "lstm" in _models:
             model = _models["lstm"]
-            for i in range(30, min(n_points, 30 + 50)):
+            for i in range(30, min(request.n_points, 30 + 50)):
                 seq = arr[i - 30 : i]
                 pred = model.predict_next(seq)
                 forecasts.append({
@@ -136,26 +155,23 @@ def forecast():
                     "actual": [round(float(arr[i, j]), 4) for j in range(arr.shape[1])],
                 })
 
-        return jsonify({
+        return {
             "forecast_length": len(forecasts),
             "forecasts": forecasts,
             "sensor_data": {
                 k: [round(float(x), 4) for x in v]
                 for k, v in sensor_data.items()
             },
-        })
+        }
     except Exception as e:
-        return jsonify({"error": str(e), "trace": traceback.format_exc()}), 500
+        raise HTTPException(status_code=500, detail={"error": str(e), "trace": traceback.format_exc()})
 
 
-@app.route("/api/compare", methods=["POST"])
-def compare():
+@app.post("/api/compare")
+async def compare(request: CompareRequest):
     try:
-        _load_models()
-        data = request.get_json(silent=True) or {}
-        n_points = data.get("n_points", 500)
         _, anomalous, true_mask, _ = gen.generate_dataset(
-            n_points=n_points, anomaly_ratio=0.05
+            n_points=request.n_points, anomaly_ratio=0.05
         )
         windows = proc.prepare_train_data(anomalous, window_size=30)
         flat = windows.reshape(windows.shape[0], -1)
@@ -195,14 +211,14 @@ def compare():
                 "false_negatives": fn,
             }
 
-        return jsonify({"comparison": comparison, "n_samples": len(flat)})
+        return {"comparison": comparison, "n_samples": len(flat)}
     except Exception as e:
-        return jsonify({"error": str(e), "trace": traceback.format_exc()}), 500
+        raise HTTPException(status_code=500, detail={"error": str(e), "trace": traceback.format_exc()})
 
 
-@app.route("/api/docs")
-def api_docs():
-    return jsonify({
+@app.get("/api/docs")
+async def api_docs():
+    return {
         "openapi": "3.0.0",
         "info": {"title": "Deep Anomaly Detector", "version": "1.0.0"},
         "paths": {
@@ -212,9 +228,10 @@ def api_docs():
             "/api/forecast": {"post": {"summary": "Forecast sensor readings with LSTM"}},
             "/api/compare": {"post": {"summary": "Compare detection models performance"}},
         }
-    })
+    }
 
 
 if __name__ == "__main__":
+    import uvicorn
     _load_models()
-    app.run(host="0.0.0.0", port=5018, debug=False)
+    uvicorn.run(app, host="0.0.0.0", port=5018)

@@ -8,6 +8,8 @@ import threading
 
 sys.path.insert(0, os.path.dirname(__file__))
 
+from fastapi.testclient import TestClient
+
 
 def test_training():
     """Verify models exist after training."""
@@ -28,21 +30,15 @@ def test_training():
 
 
 def test_api_endpoints():
-    """Test all Flask API endpoints."""
+    """Test all FastAPI API endpoints."""
     from app import app, _load_models
 
     _load_models()
-    client = app.test_client()
-
-    print("\n--- Test: GET / ---")
-    r = client.get("/")
-    print(f"  Status: {r.status_code}")
-    assert r.status_code == 200
-    print("  [PASS] Dashboard renders")
+    client = TestClient(app)
 
     print("\n--- Test: GET /api/health ---")
     r = client.get("/api/health")
-    data = r.get_json()
+    data = r.json()
     print(f"  Status: {r.status_code}")
     print(f"  Models loaded: {data['models_loaded']}")
     assert r.status_code == 200
@@ -51,7 +47,7 @@ def test_api_endpoints():
 
     print("\n--- Test: GET /api/models ---")
     r = client.get("/api/models")
-    data = r.get_json()
+    data = r.json()
     print(f"  Status: {r.status_code}")
     for name, info in data["models"].items():
         print(f"  {name}: threshold={info['threshold']:.6f}")
@@ -60,7 +56,7 @@ def test_api_endpoints():
 
     print("\n--- Test: POST /api/detect ---")
     r = client.post("/api/detect", json={"n_points": 500})
-    data = r.get_json()
+    data = r.json()
     print(f"  Status: {r.status_code}")
     for name, det in data.get("detections", {}).items():
         print(f"  {name}: {det['anomalies_detected']} anomalies detected")
@@ -72,7 +68,7 @@ def test_api_endpoints():
 
     print("\n--- Test: POST /api/forecast ---")
     r = client.post("/api/forecast", json={"n_points": 200})
-    data = r.get_json()
+    data = r.json()
     print(f"  Status: {r.status_code}")
     print(f"  Forecast steps: {data['forecast_length']}")
     assert r.status_code == 200
@@ -81,7 +77,7 @@ def test_api_endpoints():
 
     print("\n--- Test: POST /api/compare ---")
     r = client.post("/api/compare", json={"n_points": 500})
-    data = r.get_json()
+    data = r.json()
     print(f"  Status: {r.status_code}")
     print(f"  Compared {len(data['comparison'])} models on {data['n_samples']} samples")
     for name, m in data["comparison"].items():
