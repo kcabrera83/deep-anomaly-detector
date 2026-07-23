@@ -7,7 +7,7 @@ def test_health(client):
     data = response.json()
     assert data["status"] == "healthy"
     assert "models_loaded" in data
-    assert data["version"] == "1.0.0"
+    assert data["version"] == "2.0.0"
 
 
 def test_models(client):
