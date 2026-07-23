@@ -81,17 +81,11 @@ class LSTMDetectorWrapper:
         return preds, errors
 
 
-def _build_ae_model(input_dim):
-    from tensorflow.keras import layers
-    model = tf.keras.Sequential([
-        layers.Dense(128, activation='relu', input_shape=(input_dim,)),
-        layers.Dense(64, activation='relu'),
-        layers.Dense(16, activation='relu'),
-        layers.Dense(64, activation='relu'),
-        layers.Dense(128, activation='relu'),
-        layers.Dense(input_dim, activation='sigmoid'),
-    ])
-    model.compile(optimizer='adam', loss='mse')
+def _build_ae_model(input_dim, latent_dim=16):
+    from deep_anomaly.train import AutoEncoder
+    model = AutoEncoder(input_dim=input_dim, latent_dim=latent_dim)
+    dummy = tf.zeros((1, input_dim))
+    model(dummy)
     return model
 
 
@@ -136,14 +130,26 @@ def _get_metadata():
 
 
 class DetectRequest(BaseModel):
+    pressure: Optional[List[float]] = None
+    temperature: Optional[List[float]] = None
+    flow_rate: Optional[List[float]] = None
+    vibration: Optional[List[float]] = None
     n_points: int = 500
 
 
 class ForecastRequest(BaseModel):
+    pressure: Optional[List[float]] = None
+    temperature: Optional[List[float]] = None
+    flow_rate: Optional[List[float]] = None
+    vibration: Optional[List[float]] = None
     n_points: int = 300
 
 
 class CompareRequest(BaseModel):
+    pressure: Optional[List[float]] = None
+    temperature: Optional[List[float]] = None
+    flow_rate: Optional[List[float]] = None
+    vibration: Optional[List[float]] = None
     n_points: int = 500
 
 
@@ -174,17 +180,42 @@ async def models_info():
     return {"models": info, "metadata": meta}
 
 
+def _build_sensor_data(request_data: Dict[str, Optional[List[float]]], n_points: int):
+    """Build sensor data dict from request arrays or generate synthetic fallback."""
+    provided = {k: v for k, v in request_data.items() if v is not None}
+    if len(provided) == 4:
+        sensor_data = {}
+        for key in ["pressure", "temperature", "flow_rate", "vibration"]:
+            sensor_data[key] = np.array(provided[key], dtype=np.float64)
+        return sensor_data, False
+    return gen.generate_normal(n_points), True
+
+
 @app.post("/api/detect")
 async def detect(request: DetectRequest):
     try:
+        request_dict = {
+            "pressure": request.pressure,
+            "temperature": request.temperature,
+            "flow_rate": request.flow_rate,
+            "vibration": request.vibration,
+        }
+        sensor_data, is_synthetic = _build_sensor_data(request_dict, request.n_points)
+
         normal, anomalous, true_mask, true_types = gen.generate_dataset(
-            n_points=request.n_points, anomaly_ratio=0.05
+            n_points=len(next(iter(sensor_data.values()))), anomaly_ratio=0.05
         )
+
+        if not is_synthetic:
+            for k in sensor_data:
+                if k in anomalous:
+                    anomalous[k] = sensor_data[k].copy()
 
         windows = proc.prepare_train_data(anomalous, window_size=30)
         flat = windows.reshape(windows.shape[0], -1)
 
-        results: Dict[str, Any] = {"timestamp": list(range(request.n_points)), "sensors": {}}
+        n_actual = len(next(iter(anomalous.values())))
+        results: Dict[str, Any] = {"timestamp": list(range(n_actual)), "sensors": {}, "data_source": "user_provided" if not is_synthetic else "synthetic"}
         for k, v in anomalous.items():
             results["sensors"][k] = [round(float(x), 4) for x in v]
 
@@ -209,14 +240,22 @@ async def detect(request: DetectRequest):
 @app.post("/api/forecast")
 async def forecast(request: ForecastRequest):
     try:
-        sensor_data = gen.generate_normal(request.n_points)
+        request_dict = {
+            "pressure": request.pressure,
+            "temperature": request.temperature,
+            "flow_rate": request.flow_rate,
+            "vibration": request.vibration,
+        }
+        sensor_data, is_synthetic = _build_sensor_data(request_dict, request.n_points)
+
         normed = proc.normalize(sensor_data, fit=True)
         arr = np.column_stack([normed[k] for k in sorted(normed.keys())])
 
         forecasts = []
         if "lstm" in _models:
             model = _models["lstm"]
-            for i in range(30, min(request.n_points, 30 + 50)):
+            n_pts = len(arr)
+            for i in range(30, min(n_pts, 30 + 50)):
                 seq = arr[i - 30: i]
                 pred = model.predict_next(seq)
                 forecasts.append({
@@ -228,6 +267,7 @@ async def forecast(request: ForecastRequest):
         return {
             "forecast_length": len(forecasts),
             "forecasts": forecasts,
+            "data_source": "user_provided" if not is_synthetic else "synthetic",
             "sensor_data": {
                 k: [round(float(x), 4) for x in v]
                 for k, v in sensor_data.items()
@@ -240,9 +280,23 @@ async def forecast(request: ForecastRequest):
 @app.post("/api/compare")
 async def compare(request: CompareRequest):
     try:
-        _, anomalous, true_mask, _ = gen.generate_dataset(
-            n_points=request.n_points, anomaly_ratio=0.05
+        request_dict = {
+            "pressure": request.pressure,
+            "temperature": request.temperature,
+            "flow_rate": request.flow_rate,
+            "vibration": request.vibration,
+        }
+        sensor_data, is_synthetic = _build_sensor_data(request_dict, request.n_points)
+
+        normal, anomalous, true_mask, _ = gen.generate_dataset(
+            n_points=len(next(iter(sensor_data.values()))), anomaly_ratio=0.05
         )
+
+        if not is_synthetic:
+            for k in sensor_data:
+                if k in anomalous:
+                    anomalous[k] = sensor_data[k].copy()
+
         windows = proc.prepare_train_data(anomalous, window_size=30)
         flat = windows.reshape(windows.shape[0], -1)
         true_labels = np.where(true_mask[:len(flat)], -1, 1)
@@ -281,7 +335,7 @@ async def compare(request: CompareRequest):
                 "false_negatives": fn,
             }
 
-        return {"comparison": comparison, "n_samples": len(flat)}
+        return {"comparison": comparison, "n_samples": len(flat), "data_source": "user_provided" if not is_synthetic else "synthetic"}
     except Exception as e:
         raise HTTPException(status_code=500, detail={"error": str(e), "trace": traceback.format_exc()})
 
