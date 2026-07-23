@@ -200,6 +200,21 @@ def compare():
         return jsonify({"error": str(e), "trace": traceback.format_exc()}), 500
 
 
+@app.route("/api/docs")
+def api_docs():
+    return jsonify({
+        "openapi": "3.0.0",
+        "info": {"title": "Deep Anomaly Detector", "version": "1.0.0"},
+        "paths": {
+            "/api/health": {"get": {"summary": "Health check"}},
+            "/api/models": {"get": {"summary": "Model info"}},
+            "/api/detect": {"post": {"summary": "Detect anomalies in sensor data"}},
+            "/api/forecast": {"post": {"summary": "Forecast sensor readings with LSTM"}},
+            "/api/compare": {"post": {"summary": "Compare detection models performance"}},
+        }
+    })
+
+
 if __name__ == "__main__":
     _load_models()
     app.run(host="0.0.0.0", port=5018, debug=False)
