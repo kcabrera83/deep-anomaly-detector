@@ -1,0 +1,27 @@
+{
+  "n_samples": 5000,
+  "n_features": 4,
+  "window_size": 30,
+  "anomaly_ratio": 0.05,
+  "total_anomalies": 250,
+  "thresholds": {
+    "autoencoder": 0.005446520769256186,
+    "lstm": 0.05025436384563922
+  },
+  "metrics": {
+    "autoencoder": {
+      "precision": 0.0500413564929694,
+      "recall": 0.968,
+      "f1": 0.0951631930790405,
+      "accuracy": 0.07423053711526856,
+      "detected": 4836
+    },
+    "isolation_forest": {
+      "precision": 0.1111111111111111,
+      "recall": 0.004,
+      "f1": 0.007722007722007721,
+      "accuracy": 0.9483001408167371,
+      "detected": 9
+    }
+  }
+}

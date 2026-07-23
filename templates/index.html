@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Deep Anomaly Detector - Oil &amp; Gas Monitoring</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: #0f172a;
+            color: #e2e8f0;
+            min-height: 100vh;
+        }
+        header {
+            background: #1e293b;
+            border-bottom: 2px solid #f97316;
+            padding: 16px 32px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        header h1 { font-size: 1.4rem; color: #f97316; }
+        header .status { font-size: 0.85rem; color: #94a3b8; }
+        header .status .dot {
+            display: inline-block;
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: #22c55e;
+            margin-right: 6px;
+        }
+        .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+        .controls {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        .controls label { font-size: 0.85rem; color: #94a3b8; margin-right: 4px; }
+        .controls input, .controls select {
+            background: #1e293b;
+            border: 1px solid #334155;
+            color: #e2e8f0;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 0.85rem;
+        }
+        .controls input:focus, .controls select:focus {
+            outline: none;
+            border-color: #f97316;
+        }
+        .btn {
+            background: #f97316;
+            color: #fff;
+            border: none;
+            padding: 8px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            font-weight: 600;
+            transition: background 0.2s;
+        }
+        .btn:hover { background: #ea580c; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-secondary { background: #334155; }
+        .btn-secondary:hover { background: #475569; }
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        .card {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 10px;
+            padding: 16px;
+        }
+        .card h3 {
+            font-size: 0.9rem;
+            color: #f97316;
+            margin-bottom: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .card canvas { max-height: 260px; }
+        .metrics-bar {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+        .metric-card {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 10px;
+            padding: 16px;
+            text-align: center;
+        }
+        .metric-card .value {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: #f97316;
+        }
+        .metric-card .label {
+            font-size: 0.75rem;
+            color: #94a3b8;
+            margin-top: 4px;
+            text-transform: uppercase;
+        }
+        .comparison-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85rem;
+        }
+        .comparison-table th {
+            background: #0f172a;
+            color: #f97316;
+            padding: 10px;
+            text-align: left;
+            border-bottom: 2px solid #334155;
+        }
+        .comparison-table td {
+            padding: 10px;
+            border-bottom: 1px solid #1e293b;
+        }
+        .comparison-table tr:hover td { background: #0f172a; }
+        .anomaly-badge {
+            background: #dc2626;
+            color: #fff;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        .normal-badge {
+            background: #16a34a;
+            color: #fff;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        footer {
+            text-align: center;
+            padding: 20px;
+            color: #64748b;
+            font-size: 0.8rem;
+            border-top: 1px solid #1e293b;
+            margin-top: 40px;
+        }
+        .loading { opacity: 0.6; pointer-events: none; }
+        @media (max-width: 768px) {
+            .grid { grid-template-columns: 1fr; }
+            .metrics-bar { grid-template-columns: 1fr 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Deep Anomaly Detector</h1>
+        <div class="status"><span class="dot" id="statusDot"></span><span id="statusText">Connecting...</span></div>
+    </header>
+
+    <div class="container">
+        <div class="controls">
+            <label>Samples:</label>
+            <input type="number" id="nPoints" value="500" min="100" max="5000" step="100">
+            <button class="btn" onclick="runDetection()">Run Detection</button>
+            <button class="btn" onclick="runForecast()">Run Forecast</button>
+            <button class="btn btn-secondary" onclick="runCompare()">Compare Models</button>
+            <button class="btn btn-secondary" onclick="generateNewData()">New Data</button>
+        </div>
+
+        <div class="metrics-bar" id="metricsBar">
+            <div class="metric-card"><div class="value" id="metricTotal">-</div><div class="label">Total Samples</div></div>
+            <div class="metric-card"><div class="value" id="metricAnomalies">-</div><div class="label">Anomalies Detected</div></div>
+            <div class="metric-card"><div class="value" id="metricAE">-</div><div class="label">AE Errors</div></div>
+            <div class="metric-card"><div class="value" id="metricIF">-</div><div class="label">IF Score</div></div>
+        </div>
+
+        <div class="grid">
+            <div class="card">
+                <h3>Pressure &amp; Temperature</h3>
+                <canvas id="chartPT"></canvas>
+            </div>
+            <div class="card">
+                <h3>Flow Rate &amp; Vibration</h3>
+                <canvas id="chartFV"></canvas>
+            </div>
+            <div class="card">
+                <h3>Anomaly Scores (Autoencoder)</h3>
+                <canvas id="chartAE"></canvas>
+            </div>
+            <div class="card">
+                <h3>Model Comparison</h3>
+                <div id="comparisonContent">
+                    <p style="color:#64748b;font-size:0.85rem;">Click "Compare Models" to load results.</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>Forecast</h3>
+            <canvas id="chartForecast" style="max-height:200px;"></canvas>
+        </div>
+    </div>
+
+    <footer>
+        Elaborado por Ing. Kelvin Cabrera &mdash; Deep Anomaly Detector v1.0.0 &mdash; Oil &amp; Gas Operations
+    </footer>
+
+    <script>
+        let charts = {};
+
+        function createChart(id, config) {
+            if (charts[id]) charts[id].destroy();
+            const ctx = document.getElementById(id).getContext('2d');
+            charts[id] = new Chart(ctx, config);
+            return charts[id];
+        }
+
+        function timeLabels(n) { return Array.from({length: n}, (_, i) => i); }
+
+        function lineDataset(label, data, color, opts = {}) {
+            return {
+                label, data,
+                borderColor: color,
+                backgroundColor: color + '22',
+                borderWidth: 1.5,
+                pointRadius: 0,
+                fill: opts.fill || false,
+                tension: 0.3,
+                ...opts
+            };
+        }
+
+        async function checkHealth() {
+            try {
+                const r = await fetch('/api/health');
+                const d = await r.json();
+                document.getElementById('statusDot').style.background = '#22c55e';
+                document.getElementById('statusText').textContent = `Connected | ${d.models_loaded.length} models`;
+            } catch (e) {
+                document.getElementById('statusDot').style.background = '#dc2626';
+                document.getElementById('statusText').textContent = 'Disconnected';
+            }
+        }
+
+        async function runDetection() {
+            const n = document.getElementById('nPoints').value;
+            document.body.classList.add('loading');
+            try {
+                const r = await fetch('/api/detect', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({n_points: parseInt(n)})
+                });
+                const d = await r.json();
+                if (d.error) { alert('Error: ' + d.error); return; }
+                renderDetection(d);
+            } catch (e) { alert('Error: ' + e.message); }
+            finally { document.body.classList.remove('loading'); }
+        }
+
+        function renderDetection(d) {
+            const n = d.timestamp.length;
+            const labels = timeLabels(n);
+
+            document.getElementById('metricTotal').textContent = n;
+            const trueAnom = d.true_anomaly_mask.filter(Boolean).length;
+            document.getElementById('metricAnomalies').textContent = trueAnom;
+
+            if (d.detections.autoencoder) {
+                document.getElementById('metricAE').textContent = d.detections.autoencoder.anomalies_detected;
+            }
+            if (d.detections.isolation_forest) {
+                document.getElementById('metricIF').textContent = d.detections.isolation_forest.anomalies_detected;
+            }
+
+            const anomalyIdx = d.true_anomaly_mask.map((v, i) => v ? i : -1).filter(i => i >= 0);
+            const pointColors = labels.map(i => d.true_anomaly_mask[i] ? '#dc2626' : undefined);
+            const pointSizes = labels.map(i => d.true_anomaly_mask[i] ? 4 : 0);
+
+            createChart('chartPT', {
+                type: 'line',
+                data: {
+                    labels,
+                    datasets: [
+                        lineDataset('Pressure', d.sensors.pressure, '#f97316'),
+                        lineDataset('Temperature', d.sensors.temperature, '#06b6d4'),
+                    ]
+                },
+                options: { responsive: true, plugins: { legend: { labels: { color: '#94a3b8' } } },
+                    scales: { x: { ticks: { color: '#64748b' } }, y: { ticks: { color: '#64748b' } } }
+                }
+            });
+
+            createChart('chartFV', {
+                type: 'line',
+                data: {
+                    labels,
+                    datasets: [
+                        lineDataset('Flow Rate', d.sensors.flow_rate, '#22c55e'),
+                        lineDataset('Vibration', d.sensors.vibration, '#a855f7'),
+                    ]
+                },
+                options: { responsive: true, plugins: { legend: { labels: { color: '#94a3b8' } } },
+                    scales: { x: { ticks: { color: '#64748b' } }, y: { ticks: { color: '#64748b' } } }
+                }
+            });
+
+            if (d.detections.autoencoder) {
+                const scores = d.detections.autoencoder.scores;
+                const threshold = d.detections.autoencoder.threshold;
+                createChart('chartAE', {
+                    type: 'line',
+                    data: {
+                        labels: timeLabels(scores.length),
+                        datasets: [
+                            lineDataset('Recon. Error', scores, '#f97316'),
+                            {
+                                label: 'Threshold',
+                                data: Array(scores.length).fill(threshold),
+                                borderColor: '#dc2626',
+                                borderWidth: 2,
+                                borderDash: [5, 5],
+                                pointRadius: 0,
+                            }
+                        ]
+                    },
+                    options: { responsive: true, plugins: { legend: { labels: { color: '#94a3b8' } } },
+                        scales: { x: { ticks: { color: '#64748b' } }, y: { ticks: { color: '#64748b' } } }
+                    }
+                });
+            }
+        }
+
+        async function runForecast() {
+            const n = document.getElementById('nPoints').value;
+            document.body.classList.add('loading');
+            try {
+                const r = await fetch('/api/forecast', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({n_points: parseInt(n)})
+                });
+                const d = await r.json();
+                if (d.error) { alert('Error: ' + d.error); return; }
+                renderForecast(d);
+            } catch (e) { alert('Error: ' + e.message); }
+            finally { document.body.classList.remove('loading'); }
+        }
+
+        function renderForecast(d) {
+            const labels = d.forecasts.map(f => f.step);
+            const predicted = d.forecasts.map(f => f.predicted[0]);
+            const actual = d.forecasts.map(f => f.actual[0]);
+
+            createChart('chartForecast', {
+                type: 'line',
+                data: {
+                    labels,
+                    datasets: [
+                        lineDataset('Actual Pressure', actual, '#06b6d4'),
+                        lineDataset('Predicted Pressure', predicted, '#f97316', { borderDash: [4, 4] }),
+                    ]
+                },
+                options: { responsive: true, plugins: { legend: { labels: { color: '#94a3b8' } } },
+                    scales: { x: { ticks: { color: '#64748b' } }, y: { ticks: { color: '#64748b' } } }
+                }
+            });
+        }
+
+        async function runCompare() {
+            const n = document.getElementById('nPoints').value;
+            document.body.classList.add('loading');
+            try {
+                const r = await fetch('/api/compare', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({n_points: parseInt(n)})
+                });
+                const d = await r.json();
+                if (d.error) { alert('Error: ' + d.error); return; }
+                renderComparison(d);
+            } catch (e) { alert('Error: ' + e.message); }
+            finally { document.body.classList.remove('loading'); }
+        }
+
+        function renderComparison(d) {
+            const c = d.comparison;
+            let html = '<table class="comparison-table"><tr><th>Model</th><th>Precision</th><th>Recall</th><th>F1</th><th>Accuracy</th><th>Detected</th></tr>';
+            for (const [name, m] of Object.entries(c)) {
+                html += `<tr>
+                    <td><strong>${name}</strong></td>
+                    <td>${(m.precision * 100).toFixed(1)}%</td>
+                    <td>${(m.recall * 100).toFixed(1)}%</td>
+                    <td>${(m.f1_score * 100).toFixed(1)}%</td>
+                    <td>${(m.accuracy * 100).toFixed(1)}%</td>
+                    <td>${m.detected} <span class="anomaly-badge">anom</span></td>
+                </tr>`;
+            }
+            html += '</table>';
+            document.getElementById('comparisonContent').innerHTML = html;
+        }
+
+        async function generateNewData() {
+            await runDetection();
+        }
+
+        checkHealth();
+        runDetection();
+    </script>
+</body>
+</html>
