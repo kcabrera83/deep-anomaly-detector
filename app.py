@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from prometheus_fastapi_instrumentator import Instrumentator
 from pydantic import BaseModel
 
 sys.path.insert(0, os.path.dirname(__file__))
@@ -32,6 +33,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+Instrumentator().instrument(app).expose(app)
 
 MODELS_DIR = os.path.join(os.path.dirname(__file__), "outputs", "models")
 proc = SequenceProcessor(window_size=30, stride=1)
@@ -235,3 +238,4 @@ if __name__ == "__main__":
     import uvicorn
     _load_models()
     uvicorn.run(app, host="0.0.0.0", port=5018)
+
