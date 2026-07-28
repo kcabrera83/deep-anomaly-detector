@@ -1,5 +1,3 @@
-"""LSTM-like predictor implemented in pure NumPy for time-series forecasting."""
-
 import numpy as np
 import pickle
 

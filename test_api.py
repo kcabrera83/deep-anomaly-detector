@@ -1,5 +1,3 @@
-"""Test suite for the Deep Anomaly Detector API endpoints."""
-
 import os
 import sys
 import json
@@ -43,7 +41,7 @@ def test_api_endpoints():
     print(f"  Models loaded: {data['models_loaded']}")
     assert r.status_code == 200
     assert len(data["models_loaded"]) == 3
-    print("  [PASS] Health check")
+    pass
 
     print("\n--- Test: GET /api/models ---")
     r = client.get("/api/models")
@@ -52,7 +50,7 @@ def test_api_endpoints():
     for name, info in data["models"].items():
         print(f"  {name}: threshold={info['threshold']:.6f}")
     assert r.status_code == 200
-    print("  [PASS] Models info")
+    pass
 
     print("\n--- Test: POST /api/detect ---")
     r = client.post("/api/detect", json={"n_points": 500})
@@ -64,7 +62,7 @@ def test_api_endpoints():
     print(f"  True anomalies in data: {n_true}")
     assert r.status_code == 200
     assert "autoencoder" in data["detections"]
-    print("  [PASS] Detection endpoint")
+    pass
 
     print("\n--- Test: POST /api/forecast ---")
     r = client.post("/api/forecast", json={"n_points": 200})
@@ -73,7 +71,7 @@ def test_api_endpoints():
     print(f"  Forecast steps: {data['forecast_length']}")
     assert r.status_code == 200
     assert data["forecast_length"] > 0
-    print("  [PASS] Forecast endpoint")
+    pass
 
     print("\n--- Test: POST /api/compare ---")
     r = client.post("/api/compare", json={"n_points": 500})
@@ -83,11 +81,10 @@ def test_api_endpoints():
     for name, m in data["comparison"].items():
         print(f"  {name}: P={m['precision']:.3f} R={m['recall']:.3f} F1={m['f1_score']:.3f}")
     assert r.status_code == 200
-    print("  [PASS] Compare endpoint")
+    pass
 
     print("\n" + "=" * 50)
-    print("  ALL TESTS PASSED")
-    print("=" * 50)
+    pass
 
 
 if __name__ == "__main__":

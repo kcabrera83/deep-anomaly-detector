@@ -1,5 +1,3 @@
-"""Sliding window creation, normalization, and sequence padding utilities."""
-
 import numpy as np
 
 

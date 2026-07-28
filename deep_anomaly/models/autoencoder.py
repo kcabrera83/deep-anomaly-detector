@@ -1,5 +1,3 @@
-"""Autoencoder model using pure NumPy for reconstruction-based anomaly detection."""
-
 import numpy as np
 import pickle
 import os

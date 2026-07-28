@@ -1,5 +1,3 @@
-"""Anomaly detection models."""
-
 from deep_anomaly.models.autoencoder import SimpleAutoencoder
 from deep_anomaly.models.lstm_predictor import SimpleLSTMPredictor
 from deep_anomaly.models.isolation_forest import IsolationForestDetector

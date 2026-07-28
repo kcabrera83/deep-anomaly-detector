@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="deep-anomaly-detector",
-    version="1.0.0",
+    version="0.1",
     author="Ing. Kelvin Cabrera",
     description="Deep Learning anomaly detection for oil & gas operations",
     packages=find_packages(),

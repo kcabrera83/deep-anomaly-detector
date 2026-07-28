@@ -1,5 +1,3 @@
-"""Isolation Forest wrapper for anomaly detection comparison."""
-
 import numpy as np
 import pickle
 from sklearn.ensemble import IsolationForest
@@ -8,7 +6,7 @@ from sklearn.ensemble import IsolationForest
 class IsolationForestDetector:
     """Wraps scikit-learn IsolationForest for comparison with deep learning models."""
 
-    def __init__(self, contamination=0.05, n_estimators=100, random_state=42):
+    def __init__(self, contamination=0.05, n_estimators=100, random_state=2024):
         self.contamination = contamination
         self.n_estimators = n_estimators
         self.random_state = random_state

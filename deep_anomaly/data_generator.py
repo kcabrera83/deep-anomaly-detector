@@ -1,5 +1,3 @@
-"""Generate synthetic time-series sensor data for oil & gas operations."""
-
 import numpy as np
 
 
@@ -16,7 +14,7 @@ class SensorDataGenerator:
         "vibration": (0.5, 3.0),
     }
 
-    def __init__(self, seed=42):
+    def __init__(self, seed=2024):
         self.rng = np.random.RandomState(seed)
 
     def _smooth(self, n, freq=0.02, phase=None):
@@ -80,7 +78,7 @@ class SensorDataGenerator:
 
         return out, mask, atypes
 
-    def generate_dataset(self, n_points=5000, anomaly_ratio=0.05, seed=42):
+    def generate_dataset(self, n_points=5000, anomaly_ratio=0.05, seed=2024):
         """Full pipeline: normal data + anomalies."""
         normal = self.generate_normal(n_points)
         anomalous, mask, atypes = self.inject_anomalies(normal, anomaly_ratio, seed=seed)

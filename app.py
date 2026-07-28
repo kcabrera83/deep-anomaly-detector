@@ -1,5 +1,3 @@
-"""FastAPI application for Deep Anomaly Detector using TensorFlow/Keras + PyTorch."""
-
 import os
 import sys
 import json
@@ -23,7 +21,7 @@ from deep_anomaly.utils.sequence_processor import SequenceProcessor
 app = FastAPI(
     title="Deep Anomaly Detector",
     description="Deep Learning Anomaly Detection for Oil & Gas sensor monitoring (TF/Keras + PyTorch)",
-    version="2.0.0",
+    version="0.1",
 )
 
 app.add_middleware(
@@ -38,7 +36,7 @@ Instrumentator().instrument(app).expose(app)
 
 MODELS_DIR = os.path.join(os.path.dirname(__file__), "outputs", "models")
 proc = SequenceProcessor(window_size=30, stride=1)
-gen = SensorDataGenerator(seed=42)
+gen = SensorDataGenerator(seed=2024)
 
 _models = {}
 

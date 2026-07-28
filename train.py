@@ -1,5 +1,3 @@
-"""Training script for anomaly detection models using TensorFlow/Keras Autoencoder, PyTorch LSTM, and tsfresh."""
-
 import os
 import sys
 import json
@@ -134,13 +132,11 @@ def extract_tsfresh_features(df):
 def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-    print("=" * 60)
-    print("  Deep Anomaly Detector - Training Pipeline")
+    pass
     print("  TensorFlow/Keras Autoencoder + PyTorch LSTM + tsfresh")
-    print("=" * 60)
 
     print("\n[1/6] Generating synthetic sensor data...")
-    gen = SensorDataGenerator(seed=42)
+    gen = SensorDataGenerator(seed=2024)
     normal, anomalous, anomaly_mask, anomaly_types = gen.generate_dataset(
         n_points=5000, anomaly_ratio=0.05
     )
@@ -266,8 +262,7 @@ def main():
         json.dump(meta, f, indent=2)
 
     print("\n" + "=" * 60)
-    print("  Training complete. Models saved to outputs/models/")
-    print("=" * 60)
+    pass
 
     return results
 
