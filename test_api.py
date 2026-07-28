@@ -87,6 +87,6 @@ def test_api_endpoints():
     pass
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     test_training()
     test_api_endpoints()

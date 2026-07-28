@@ -353,7 +353,7 @@ async def api_docs():
     }
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     import uvicorn
     _load_models()
     uvicorn.run(app, host="0.0.0.0", port=5018)
