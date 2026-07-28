@@ -13,3 +13,6 @@ outputs/models/*.npy
 *.log
 .idea/
 .vscode/
+
+# Streamlit Cloud model files
+!outputs/models/*.pkl
