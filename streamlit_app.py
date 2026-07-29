@@ -1,33 +1,46 @@
-import streamlit as st, joblib, numpy as np
-from pathlib import Path; import sys; sys.path.insert(0, str(Path(__file__).parent))
 
-st.set_page_config(page_title="Anomaly Detector", page_icon="\U0001f4ca")
-st.header("Anomaly Detector")
+import streamlit as st
+import numpy as np
+import joblib, os
+import matplotlib.pyplot as plt
 
-p = Path(__file__).parent / 'outputs' / 'models'
-models = {'score': joblib.load(p / 'anomaly_detector.pkl')}
+st.set_page_config(page_title="Deep Anomaly Detector", layout="wide")
+st.title(":microscope: Deep Anomaly Detector")
+st.caption("Unsupervised anomaly detection on time-series sensor data")
 
-with st.sidebar:
-    st.write('Configure parameters below')
-    c = st.columns(2)
-    pressure = c[0].slider('Pressure', 10, 100, 55)
-    temp = c[1].slider('Temp', 20, 200, 110)
-    c = st.columns(2)
-    flow = c[0].slider('Flow', 10, 500, 255)
-    vibration = c[1].slider('Vibration', 0, 10, 5)
-    c = st.columns(2)
-    rpm = c[0].slider('Rpm', 500, 5000, 2750)
-    current = c[1].slider('Current', 5, 100, 52)
-    run = st.button('Analyze', use_container_width=True)
+models = {}
+for f in os.listdir("outputs/models"):
+    if f.endswith(".pkl"):
+        models[f.replace(".pkl", "")] = joblib.load(os.path.join("outputs/models", f))
 
-if run:
-    x = np.array([[pressure, temp, flow, vibration, rpm, current]])
-    st.divider()
-    m = models['score']
-    if isinstance(m, dict):
-        X = m['scaler'].transform(x)
-        p = m['model'].predict(X)
-        v = m['label_encoder'].inverse_transform(p)[0] if 'label_encoder' in m else f'{p[0]:.2f}'
-    else:
-        v = f'{m.predict(x)[0]:.2f}'
-    st.metric('Score', v)
+view = st.sidebar.radio("View", ["Inference", "Model Analysis", "Data Explorer"])
+
+if view == "Inference":
+    sel = st.selectbox("Model", list(models.keys()))
+    m = models[sel]
+    feats = m.get("feature_names", [f"x{i}" for i in range(4)])
+    cols = st.columns(2)
+    inp = [cols[i%2].number_input(f, value=0.0) for i, f in enumerate(feats)]
+    if st.button("Infer"):
+        X = np.array(inp).reshape(1, -1)
+        if m.get("scaler"):
+            X = m["scaler"].transform(X)
+        pred = m["model"].predict(X)[0]
+        st.metric("Result", f"{pred:.3f}")
+
+elif view == "Model Analysis":
+    sel = st.selectbox("Model", list(models.keys()))
+    m = models[sel]
+    st.json({k: str(type(v)) for k, v in m.items() if k != "model"})
+    st.write("Model type:", type(m["model"]).__name__)
+    if hasattr(m["model"], "feature_importances_"):
+        fig, ax = plt.subplots()
+        ax.bar(range(len(m["model"].feature_importances_)), m["model"].feature_importances_)
+        st.pyplot(fig)
+
+elif view == "Data Explorer":
+    n = st.slider("Samples", 10, 1000, 100)
+    X = np.random.randn(n, 4)
+    fig, ax = plt.subplots()
+    ax.plot(X)
+    st.pyplot(fig)
