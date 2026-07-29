@@ -19,3 +19,6 @@ outputs/models/*.npy
 
 # Security & MLflow
 mlflow.db
+
+# Docs build
+site/
